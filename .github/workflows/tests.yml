@@ -1,22 +1,22 @@
 name: "Tests"
 on:
-  pull_request:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
 
 jobs:
   Test:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     strategy:
       matrix:
-        node_version: ['lts/*', 'node']
+        # node 8 cannot run this release: src/Tokenizer.js uses the unicode
+        # property escape /[\p{L}\p{N}]/u, a hard SyntaxError on node 8's V8.
+        node_version: [16]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout Code
         uses: actions/checkout@v2
       - name: Install Node
-        uses: dcodeIO/setup-node-nvm@master
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node_version }}
       - name: Install Dependencies
@@ -25,10 +25,21 @@ jobs:
         run: npm run test:unit
       - name: Run Spec Tests 👩🏽‍💻
         run: npm run test:specs
+      - name: Pack 📦
+        if: matrix.node_version == 16
+        run: npm pack
+      - name: Upload Tarball ⬆️
+        if: matrix.node_version == 16
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: marked-*.tgz
+          if-no-files-found: error
 
   Lint:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout Code
         uses: actions/checkout@v2
@@ -37,34 +48,10 @@ jobs:
       - name: Lint ✨
         run: npm run test:lint
 
-  Release:
-    needs: [Test, Lint]
-    if: |
-      github.ref == 'refs/heads/master' &&
-      github.event.repository.fork == false
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
-      - name: Install Dependencies
-        run: npm ci
-      - name: Build 🗜️
-        run: |
-          npm run build
-          if ! git diff --quiet; then
-            git config --global user.email "<>"
-            git config --global user.name "MarkedJS bot"
-            git commit -am "🗜️ build [skip ci]"
-          fi
-      - name: Release 🎉
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npx semantic-release
-
   Skip:
     if: contains(github.event.head_commit.message, '[skip ci]')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Skip CI 🚫
         run: echo skip ci
